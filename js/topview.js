@@ -16,7 +16,7 @@ const A = {
   TANGLE: 0x2A, ETANGLE: 0x2C,
   TPOSX: 0x2D, TPOSY: 0x31,
   SHELLX: 0xA8, SHELLY: 0xAC,
-  FIRECT: 0x24, R2D3FL: 0xCB,
+  FIRECT: 0x24, R2D3FL: 0xCB, ECOLFLG: 0x14,
   SAPOSX: 0xD5, SAPOSY: 0xD7, SAUCER: 0xDE,
 };
 const WORLD = 65536;
@@ -38,6 +38,7 @@ export function readState(machine) {
     ex: w16(r, A.TPOSX + 2), ey: w16(r, A.TPOSY + 2),
     ea: r[A.ETANGLE] * Math.PI * 2 / 256,
     isMissile: !!(r[A.R2D3FL] & 0x80),
+    edead: r[A.ECOLFLG] !== 0,          // COLFLG+2: nonzero while blowing up
     shells: [
       { x: w16(r, A.SHELLX), y: w16(r, A.SHELLY), live: r[A.FIRECT] !== 0 },
       { x: w16(r, A.SHELLX + 2), y: w16(r, A.SHELLY + 2), live: true },
@@ -63,6 +64,8 @@ export function hitTest(x, y, g) {
     if (x >= g.left + 8 + B && x <= g.left + 8 + 2 * B) return "plus";
   }
   if (Math.abs(x - g.right) < 18 && Math.abs(y - g.top) < 18) return "grip";
+  if (x >= g.right - B - 4 && x <= g.right - 4 &&
+      y >= g.bottom - B - 4 && y <= g.bottom - 4) return "zbtn";
   if (x >= g.left && x <= g.right && y >= g.top && y <= g.bottom) return "panel";
   return null;
 }
@@ -155,27 +158,33 @@ export function drawTopView(ctx, st, opts) {
     ctx.stroke();
   }
 
-  // --- enemy ---
+  // --- enemy: red wedge oriented by its heading; hidden the moment it dies
+  // (COLFLG+2 goes nonzero at the hit, well before the debris clears) ---
   const ep = map(st.ex, st.ey);
-  if (inside(ep, 3)) {
-    ctx.strokeStyle = st.isMissile ? "rgba(255,120,60,0.95)" : "rgba(32,255,64,1)";
-    ctx.lineWidth = 2;
-    ctx.beginPath();
+  if (!st.edead && inside(ep, 3)) {
+    const erel = st.ea - o.a;
+    const efwd = [-Math.sin(erel), -Math.cos(erel)];
+    const elft = [-Math.cos(erel), Math.sin(erel)];
     if (st.isMissile) {
+      ctx.strokeStyle = "rgba(255,120,60,0.95)";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
       ctx.moveTo(ep[0] - 5, ep[1] - 5); ctx.lineTo(ep[0] + 5, ep[1] + 5);
       ctx.moveTo(ep[0] - 5, ep[1] + 5); ctx.lineTo(ep[0] + 5, ep[1] - 5);
+      ctx.stroke();
     } else {
-      ctx.moveTo(ep[0] - 6, ep[1]); ctx.lineTo(ep[0] + 6, ep[1]);
-      ctx.moveTo(ep[0], ep[1] - 6); ctx.lineTo(ep[0], ep[1] + 6);
+      const tip = [ep[0] + efwd[0] * 10, ep[1] + efwd[1] * 10];
+      const bl = [ep[0] - efwd[0] * 5 + elft[0] * 6, ep[1] - efwd[1] * 5 + elft[1] * 6];
+      const br = [ep[0] - efwd[0] * 5 - elft[0] * 6, ep[1] - efwd[1] * 5 - elft[1] * 6];
+      ctx.beginPath();
+      ctx.moveTo(tip[0], tip[1]); ctx.lineTo(bl[0], bl[1]); ctx.lineTo(br[0], br[1]);
+      ctx.closePath();
+      ctx.fillStyle = "rgba(255,60,60,0.8)";
+      ctx.fill();
+      ctx.strokeStyle = "rgba(255,150,150,1)";
+      ctx.lineWidth = 1.2;
+      ctx.stroke();
     }
-    ctx.stroke();
-    const erel = st.ea - o.a;
-    ctx.strokeStyle = "rgba(32,255,64,0.6)";
-    ctx.lineWidth = 1.2;
-    ctx.beginPath();
-    ctx.moveTo(ep[0], ep[1]);
-    ctx.lineTo(ep[0] - Math.sin(erel) * 12, ep[1] - Math.cos(erel) * 12);
-    ctx.stroke();
   }
 
   // --- saucer ---
@@ -222,6 +231,21 @@ export function drawTopView(ctx, st, opts) {
   ctx.moveTo(g.right - 14, g.top); ctx.lineTo(g.right, g.top + 14);
   ctx.moveTo(g.right - 7, g.top); ctx.lineTo(g.right, g.top + 7);
   ctx.stroke();
+
+  // freeze toggle button (bottom-right): replicates the Z key
+  {
+    const zx = g.right - B - 4, zy = g.bottom - B - 4;
+    ctx.fillStyle = "rgba(0,0,0,0.6)";
+    ctx.fillRect(zx, zy, B, B);
+    ctx.strokeStyle = origin ? "rgba(255,200,60,0.95)" : "rgba(32,255,64,0.7)";
+    ctx.lineWidth = 1;
+    ctx.strokeRect(zx, zy, B, B);
+    ctx.fillStyle = origin ? "rgba(255,200,60,0.95)" : "rgba(32,255,64,0.9)";
+    ctx.font = "13px 'Courier New', monospace";
+    ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.fillText("Z", zx + B / 2, zy + B / 2 + 1);
+    ctx.textAlign = "left"; ctx.textBaseline = "alphabetic";
+  }
 
   ctx.fillStyle = origin ? "rgba(255,200,60,0.95)" : "rgba(32,255,64,0.65)";
   ctx.font = "10px 'Courier New', monospace";

@@ -42,9 +42,13 @@ export class Machine {
     this.start = false;
     this.coinPulse = 0;
     this.selfTest = false;
-    // DIPs: OPTION 0xA00 bits0-1 lives (+2 => 01 = 3), bits2-3 missile score,
-    // bits4-5 bonus, bits6-7 language (00 = English)
-    this.dsw0 = 0x01;
+    // DIPs: OPTION 0xA00 -- the gameplay switch bank inside the cabinet:
+    //   bits 0-1  lives: value+2 (2/3/4/5)          [MOTION start-up code]
+    //   bits 2-3  missile appears at 5k/10k/20k/30k [MISLVL]
+    //   bits 4-5  bonus tank: none/15k/25k/50k, each also at 100,000 [NEWLIF/BONTBL]
+    //   bits 6-7  language: English/German/French/Spanish [MSGS/LNGTBL]
+    // default 0x11: 3 lives, missile at 5000, bonus at 15,000 & 100,000, English
+    this.dsw0 = 0x11;
     this.dsw1 = 0x00;          // OPTON2: low 2 bits 0 = FREE PLAY
     this.soundLatch = 0;
     // audio events recorded with CPU-cycle stamps so the sound renderer can

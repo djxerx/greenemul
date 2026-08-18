@@ -19,14 +19,33 @@
   <button id="btn-sound" title="Mute / unmute">MUTE</button>
   <button id="btn-top" title="Top-down overlay (T) · Z freezes the field · +/- zoom · drag corner to resize">TOP</button>
   <button id="btn-freeze" class="hidden" title="Freeze the top-down field (Z)">FRZ</button>
-  <span class="lbl">SPD</span>
-  <input id="speed" type="range" min="0.6" max="1" step="0.01" value="0.93">
-  <span id="speedval">0.93x</span>
-  <span class="lbl">TONE</span>
-  <input id="tone" type="range" min="0.3" max="2" step="0.05" value="0.6"
-         title="Pitch of engine/shell/explosion (the analog board approximation)">
-  <span id="toneval">0.60x</span>
+  <button id="btn-gear" title="Tuning and control options">&#9881;</button>
+  <button id="btn-hide" title="Hide the control bar">&#10005;</button>
 </div>
+<div id="gearpanel" class="hidden">
+  <div class="row"><span class="lbl">SPD</span>
+    <input id="speed" type="range" min="0.6" max="1" step="0.01" value="0.93">
+    <span id="speedval">0.93x</span></div>
+  <div class="row"><span class="lbl">TONE</span>
+    <input id="tone" type="range" min="0.3" max="2" step="0.05" value="0.6"
+           title="Pitch of engine/shell/explosion (the analog board approximation)">
+    <span id="toneval">0.60x</span></div>
+  <div class="row"><span class="lbl">TOUCH</span>
+    <button id="ctrl-scheme" title="Touch control style">DUAL STICKS</button></div>
+  <div class="row"><span class="lbl">FIRE</span>
+    <button id="ctrl-side" title="Which side the FIRE button sits on">RIGHT</button></div>
+  <div class="row"><span class="lbl">LIVES</span>
+    <button id="dip-lives" title="Cabinet DIP: tanks per game">3</button></div>
+  <div class="row"><span class="lbl">BONUS</span>
+    <button id="dip-bonus" title="Cabinet DIP: bonus tank at score (and 100,000)">15000 + 100K</button></div>
+  <div class="row"><span class="lbl">MISSILE</span>
+    <button id="dip-missile" title="Cabinet DIP: score where the missile first appears">5000</button></div>
+  <div class="row"><span class="lbl">LANG</span>
+    <button id="dip-lang" title="Cabinet DIP: on-screen language">ENGLISH</button></div>
+</div>
+<div id="show-ui" class="hidden" title="Show controls">&#9776;</div>
+<div id="thumb-base" class="hidden"></div>
+<div id="thumb-knob" class="hidden"></div>
 <div id="tread-left" class="tread"><div class="knob"></div></div>
 <div id="tread-right" class="tread"><div class="knob"></div></div>
 <button id="btn-fire">FIRE</button>

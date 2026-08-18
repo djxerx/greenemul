@@ -23,7 +23,14 @@ in the browser. This is the reference for fine-tuning the remake in
 - **Discrete sound board** (the 0x1840 latch) — synthesized, not netlist-
   simulated: engine idle/rumble (`LIDLE`/`HIDLE`), explosion with LOX/HIX
   pitch, and soft/loud shell fire.
-- **DIP switches**: free play, 3 lives, missile at 5000, English
+- **DIP switches** — both cabinet banks. The gameplay bank (`OPTION`, 0x0A00)
+  is settable live under the **⚙** gear: LIVES 2/3/4/5, BONUS tank at
+  none / 15,000 / 25,000 / 50,000 (each also awards one at 100,000 — the
+  "SUPER BONUS" with fireworks), MISSILE first appears at 5/10/20/30 thousand,
+  and LANG English/German/French/Spanish (the ROM carries all four message
+  tables). Defaults: 3 lives, bonus at 15,000 + 100,000, missile at 5,000,
+  English. The coinage bank (`OPTON2`, 0x0C00) is fixed at free play; its other
+  bits select coins-per-credit, per-mech multipliers and a bonus-coin adder.
 
 Sound is **on by default**. A browser will not start an AudioContext until the
 page has seen a user gesture, so it unlocks automatically on your first click,
@@ -91,24 +98,38 @@ then open `http://localhost:8322`. Free play is set: press **START** (or Enter).
 
 ### On an iPad
 
-Touch controls appear automatically on any touch device: **two vertical tread
-sliders** (left and right, each with a knob and a centre detent — push both up
-to drive, opposite ways to pivot, exactly like the arcade's twin sticks) and a
-**FIRE** button. Everything else — COIN, START, pause, step, SOUND, TOP, FRZ,
-and the SPD/TONE sliders — is in the toolbar, which wraps to fit narrow screens;
-the sticks automatically lift to stay clear of it. **FRZ** is the touch
-equivalent of the Z freeze key, and the top-down panel's own **−/+** buttons and
-corner grip are tappable.
+Touch controls appear automatically on any touch device. Two schemes, chosen
+under the **⚙** gear (the setting persists):
+
+- **DUAL STICKS** (default): two vertical tread sliders with knobs and a centre
+  detent — push both up to drive, opposite ways to pivot, like the arcade.
+- **THUMB PAD**: put a finger down anywhere on its side of the screen and a
+  pad appears under it; slide in any of 8 directions to get the original 8
+  movement states (diagonals = single-tread turns). FIRE sits on the other
+  side; the **FIRE** side option swaps them (pad left/fire right by default).
+
+**Tapping the screen presses START**, so you can begin a game even with the
+control bar hidden. The **✕** button hides the whole control bar; a small **☰**
+box in the bottom-right corner brings it back. SPD/TONE sliders and the control
+options live under the **⚙** gear. **FRZ** is the touch equivalent of the Z
+freeze key, and the top-down panel's own widgets are all tappable.
 
 Serve the folder from your computer and open `http://<computer-ip>:8322` in
 Safari on the same Wi-Fi. "Add to Home Screen" gives a full-screen app.
 
 ## Top-down overlay
 
-**T** toggles a map in the bottom-left showing the player as a filled triangle
-with its field-of-view wedge, plus obstacles, the enemy tank (or missile, in
-orange), the saucer and shells in flight — the same calibration aid the remake
-has.
+**T** toggles a map in the bottom-left showing the player as a filled green
+triangle with its field-of-view wedge, obstacles, the enemy tank as a **red
+wedge** oriented by its heading (the missile stays an orange ✕), the saucer and
+shells in flight. The enemy marker disappears the instant it is destroyed
+(`COLFLG+2` goes nonzero at the hit — verified: it holds through the ~3.2 s of
+debris, then clears at respawn).
+
+Widgets on the panel: **−/+** zoom (top-left), resize grip (top-right corner,
+drag it), and a **Z** button (bottom-right) that toggles the freeze. The map
+can also be **panned**: drag with the mouse, or with two fingers on touch —
+panning freezes the frame automatically; Z / FRZ re-centres on the player.
 
 **Z freezes the field.** Normally the map is centred on the player and rotates
 with them. Press Z and the map locks to the world frame where you stood, so the

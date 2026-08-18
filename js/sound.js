@@ -90,7 +90,7 @@ export class SoundOutput {
       const a = this.coef(320 * t, sr);
       this.eng1 += (wave * throb + noise * 0.3 - this.eng1) * a;
       this.eng2 += (this.eng1 - this.eng2) * a;
-      out += this.eng2 * this.engEnv * 0.13;
+      out += this.eng2 * this.engEnv * 0.10;
     }
 
     // explosion: deep boom held while the bit is set (bit1 LOX = lower)
@@ -101,7 +101,7 @@ export class SoundOutput {
       this.exp1 += (noise - this.exp1) * a;
       this.exp2 += (this.exp1 - this.exp2) * a;
       this.exp3 += (this.exp2 - this.exp3) * a;
-      out += this.exp3 * this.expEnv * 2.3;
+      out += this.exp3 * this.expEnv * 3.2;
     }
 
     // shell: short lowpassed noise thump, louder when LOUDSH is set
@@ -111,7 +111,7 @@ export class SoundOutput {
       const a = this.coef(320 * t, sr);
       this.sh1 += (noise - this.sh1) * a;
       this.sh2 += (this.sh1 - this.sh2) * a;
-      out += this.sh2 * this.shellEnv * 0.66;
+      out += this.sh2 * this.shellEnv * 1.0;
     }
     return out;
   }

@@ -134,6 +134,22 @@ const LEVER_KEYS = {
 const heldKeys = new Set();
 let touchBits = 0;
 
+// touch control scheme: "dual" tread sliders or a floating 8-way "thumb" pad,
+// with FIRE on the configured side (thumb pad sits on the opposite side)
+let ctrl = { scheme: "dual", fireSide: "right" };
+try { Object.assign(ctrl, JSON.parse(localStorage.getItem("bz.emu.ctrl") || "{}")); } catch {}
+function applyCtrlScheme() {
+  const thumb = ctrl.scheme === "thumb";
+  document.getElementById("tread-left").style.visibility = thumb ? "hidden" : "";
+  document.getElementById("tread-right").style.visibility = thumb ? "hidden" : "";
+  document.getElementById("btn-fire").classList.toggle("left", ctrl.fireSide === "left");
+  const sch = document.getElementById("ctrl-scheme");
+  const sid = document.getElementById("ctrl-side");
+  if (sch) sch.textContent = thumb ? "THUMB PAD" : "DUAL STICKS";
+  if (sid) sid.textContent = ctrl.fireSide.toUpperCase();
+  try { localStorage.setItem("bz.emu.ctrl", JSON.stringify(ctrl)); } catch {}
+}
+
 // Arrow/WASD combinations, chosen to land on the ROM's own MTAB routines.
 // Held alone the arrows pivot in place; held with up/down they drive ONE
 // tread, which is how the original steers while moving:
@@ -242,30 +258,193 @@ toneSlider.oninput = () => {
   toneVal.textContent = sound.tone.toFixed(2) + "x";
 };
 
-// overlay widgets: click +/- to zoom, drag the top-right grip to resize
-let gripDrag = null;
-canvas.addEventListener("pointerdown", (e) => {
-  if (!topView || !machine) return;
-  const hit = hitTest(e.clientX, e.clientY, panelGeom(topHalf));
-  if (!hit) return;
-  e.preventDefault();
-  if (hit === "plus") topZoom = Math.min(6, topZoom * 1.25);
-  else if (hit === "minus") topZoom = Math.max(0.25, topZoom / 1.25);
-  else if (hit === "grip") {
-    gripDrag = e.pointerId;
-    try { canvas.setPointerCapture(e.pointerId); } catch {}
-  }
-});
-canvas.addEventListener("pointermove", (e) => {
-  if (gripDrag !== e.pointerId) return;
-  // anchored bottom-left at (14, innerHeight-62): grow with x, or upward with y
-  const bottom = innerHeight - 62;
-  const half = Math.max((e.clientX - 14) / 2, (bottom - e.clientY) / 2);
-  topHalf = Math.max(70, Math.min(340, half));
-});
-for (const ev of ["pointerup", "pointercancel"]) {
-  canvas.addEventListener(ev, (e) => { if (gripDrag === e.pointerId) gripDrag = null; });
+// ---------------------------------------------------------- pointer router
+// One set of canvas handlers covers: top-view widgets (+/-, grip, Z), panning
+// the frozen map (mouse drag or two-finger drag), the floating thumb pad, and
+// tap-anywhere-to-START.
+const ptrs = new Map();     // pointerId -> {kind, x, y, x0, y0, t0}
+let thumbId = null, thumbBase = null, thumbBits = 0;
+const thumbBaseEl = document.getElementById("thumb-base");
+const thumbKnobEl = document.getElementById("thumb-knob");
+
+// 8-way thumb: angle -> the ROM's MTAB movement patterns (same as the arrows)
+function thumbBitsFor(dx, dy) {
+  if (Math.hypot(dx, dy) < 18) return 0;
+  const deg = (Math.atan2(-dy, dx) * 180 / Math.PI + 360) % 360;
+  const oct = Math.round(deg / 45) % 8;
+  return [0b0110,          // 0   right      M.PR pivot right
+          0b0100,          // 45  up-right   M.RTF (left tread fwd)
+          0b0101,          // 90  up         M.FF  both fwd
+          0b0001,          // 135 up-left    M.LTF (right tread fwd)
+          0b1001,          // 180 left       M.PL  pivot left
+          0b1000,          // 225 down-left  M.LTR (left tread back)
+          0b1010,          // 270 down       M.FR  both back
+          0b0010][oct];    // 315 down-right M.RTR (right tread back)
 }
+function setThumb(bits) {
+  thumbBits = bits;
+  touchBits = bits;         // feeds updateMoveBits alongside the tread sliders
+  updateMoveBits();
+}
+function thumbSide() { return ctrl.fireSide === "right" ? "left" : "right"; }
+function inThumbZone(x) {
+  return thumbSide() === "left" ? x < innerWidth * 0.45 : x > innerWidth * 0.55;
+}
+
+// pan the (frozen) top-view by a screen-pixel delta
+function panTopView(dsx, dsy) {
+  if (!topFrozen) { toggleFreeze(); syncTopBtn(); }
+  if (!topFrozen) return;
+  const sPx = topHalf / (topRangeWu / topZoom);       // px per world unit
+  const a = topFrozen.a;
+  const A = Math.sin(a) * (-dsx / sPx) + Math.cos(a) * (dsy / sPx);
+  const B = Math.cos(a) * (dsx / sPx) + Math.sin(a) * (dsy / sPx);
+  topFrozen.x = ((topFrozen.x + A) % 65536 + 65536) % 65536;
+  topFrozen.y = ((topFrozen.y + B) % 65536 + 65536) % 65536;
+}
+
+function panelTouches() {
+  return [...ptrs.values()].filter(q => q.kind === "panelTouch");
+}
+
+function pulseStart() {
+  if (!machine) return;
+  machine.start = true;
+  setTimeout(() => { if (machine) machine.start = false; }, 180);
+}
+
+canvas.addEventListener("pointerdown", (e) => {
+  if (!machine) return;
+  const rec = { kind: "tap", x: e.clientX, y: e.clientY,
+                x0: e.clientX, y0: e.clientY, t0: performance.now() };
+  const hit = topView ? hitTest(e.clientX, e.clientY, panelGeom(topHalf)) : null;
+  if (hit === "plus") { topZoom = Math.min(6, topZoom * 1.25); rec.kind = "widget"; }
+  else if (hit === "minus") { topZoom = Math.max(0.25, topZoom / 1.25); rec.kind = "widget"; }
+  else if (hit === "zbtn") { toggleFreeze(); syncTopBtn(); rec.kind = "widget"; }
+  else if (hit === "grip") rec.kind = "grip";
+  else if (hit === "panel") {
+    // mouse drags pan directly; touches pan when two fingers are down
+    rec.kind = e.pointerType === "mouse" ? "pan" : "panelTouch";
+  } else if (e.pointerType !== "mouse" && ctrl.scheme === "thumb" && inThumbZone(e.clientX)) {
+    rec.kind = "thumb";
+    thumbId = e.pointerId;
+    thumbBase = [e.clientX, e.clientY];
+    thumbBaseEl.style.left = e.clientX + "px"; thumbBaseEl.style.top = e.clientY + "px";
+    thumbKnobEl.style.left = e.clientX + "px"; thumbKnobEl.style.top = e.clientY + "px";
+    thumbBaseEl.classList.remove("hidden"); thumbKnobEl.classList.remove("hidden");
+    setThumb(0);
+  }
+  ptrs.set(e.pointerId, rec);
+  try { canvas.setPointerCapture(e.pointerId); } catch {}
+  e.preventDefault();
+});
+
+canvas.addEventListener("pointermove", (e) => {
+  const q = ptrs.get(e.pointerId);
+  if (!q) return;
+  const dx = e.clientX - q.x, dy = e.clientY - q.y;
+  if (q.kind === "tap" && Math.hypot(e.clientX - q.x0, e.clientY - q.y0) > 12) q.kind = "dead";
+  if (q.kind === "grip") {
+    const bottom = innerHeight - 62;
+    const half = Math.max((e.clientX - 14) / 2, (bottom - e.clientY) / 2);
+    topHalf = Math.max(70, Math.min(340, half));
+  } else if (q.kind === "pan") {
+    panTopView(dx, dy);
+  } else if (q.kind === "panelTouch") {
+    q.x = e.clientX; q.y = e.clientY;
+    const pts = panelTouches();
+    if (pts.length >= 2) {
+      // pan by the average motion of the two fingers (this one moved by dx,dy)
+      panTopView(dx / 2, dy / 2);
+    }
+    return;                 // x/y already updated
+  } else if (q.kind === "thumb" && e.pointerId === thumbId) {
+    const tx = e.clientX - thumbBase[0], ty = e.clientY - thumbBase[1];
+    const d = Math.hypot(tx, ty), max = 48;
+    const k = d > max ? max / d : 1;
+    thumbKnobEl.style.left = (thumbBase[0] + tx * k) + "px";
+    thumbKnobEl.style.top = (thumbBase[1] + ty * k) + "px";
+    setThumb(thumbBitsFor(tx, ty));
+  }
+  q.x = e.clientX; q.y = e.clientY;
+});
+
+for (const ev of ["pointerup", "pointercancel"]) {
+  canvas.addEventListener(ev, (e) => {
+    const q = ptrs.get(e.pointerId);
+    ptrs.delete(e.pointerId);
+    if (!q) return;
+    if (q.kind === "thumb" || e.pointerId === thumbId) {
+      thumbId = null;
+      thumbBaseEl.classList.add("hidden"); thumbKnobEl.classList.add("hidden");
+      setThumb(0);
+    }
+    // a short, stationary tap anywhere on the play area presses START --
+    // handy on the iPad, where the word START is right there on the screen
+    if ((q.kind === "tap" || (q.kind === "thumb" && thumbBits === 0)) &&
+        ev === "pointerup" && performance.now() - q.t0 < 300 &&
+        Math.hypot(e.clientX - q.x0, e.clientY - q.y0) < 12) {
+      pulseStart();
+    }
+  });
+}
+
+// gear popover, hide/show of the whole control bar, control-scheme options
+const gearPanel = document.getElementById("gearpanel");
+document.getElementById("btn-gear").onclick = () =>
+  gearPanel.classList.toggle("hidden");
+const showUi = document.getElementById("show-ui");
+document.getElementById("btn-hide").onclick = () => {
+  document.getElementById("controls").style.display = "none";
+  gearPanel.classList.add("hidden");
+  const help = document.getElementById("help");
+  if (help) help.style.display = "none";
+  showUi.classList.remove("hidden");
+  layoutTouchControls();
+};
+showUi.onclick = () => {
+  document.getElementById("controls").style.display = "";
+  const help = document.getElementById("help");
+  if (help) help.style.display = "";
+  showUi.classList.add("hidden");
+  layoutTouchControls();
+};
+document.getElementById("ctrl-scheme").onclick = () => {
+  ctrl.scheme = ctrl.scheme === "dual" ? "thumb" : "dual";
+  applyCtrlScheme();
+};
+document.getElementById("ctrl-side").onclick = () => {
+  ctrl.fireSide = ctrl.fireSide === "right" ? "left" : "right";
+  applyCtrlScheme();
+};
+applyCtrlScheme();
+
+// ---- cabinet DIP switches (the OPTION bank at 0x0A00) ----
+// dsw0 = (lives-2) | missileIdx<<2 | bonusIdx<<4 | langIdx<<6
+const DIP_CHOICES = {
+  lives:   { labels: ["2", "3", "4", "5"], def: 1 },
+  missile: { labels: ["5000", "10000", "20000", "30000"], def: 0 },
+  bonus:   { labels: ["NONE", "15000 + 100K", "25000 + 100K", "50000 + 100K"], def: 1 },
+  lang:    { labels: ["ENGLISH", "GERMAN", "FRENCH", "SPANISH"], def: 0 },
+};
+let dips = { lives: 1, missile: 0, bonus: 1, lang: 0 };
+try { Object.assign(dips, JSON.parse(localStorage.getItem("bz.emu.dips") || "{}")); } catch {}
+function applyDips() {
+  if (machine) {
+    machine.dsw0 = (dips.lives & 3) | ((dips.missile & 3) << 2) |
+                   ((dips.bonus & 3) << 4) | ((dips.lang & 3) << 6);
+  }
+  for (const k of Object.keys(DIP_CHOICES)) {
+    const el = document.getElementById("dip-" + k);
+    if (el) el.textContent = DIP_CHOICES[k].labels[dips[k] & 3];
+  }
+  try { localStorage.setItem("bz.emu.dips", JSON.stringify(dips)); } catch {}
+}
+for (const k of Object.keys(DIP_CHOICES)) {
+  const el = document.getElementById("dip-" + k);
+  if (el) el.onclick = () => { dips[k] = (dips[k] + 1) & 3; applyDips(); };
+}
+applyDips();
 
 const btnTop = document.getElementById("btn-top");
 const btnFreeze = document.getElementById("btn-freeze");
@@ -347,6 +526,7 @@ function frame(now) {
 
 loadRoms().then(roms => {
   machine = new Machine(roms);
+  applyDips();                        // cabinet DIP switches from saved settings
   window.EMU = machine;               // debug handle
   // headless driving/rendering hooks (used for testing and measurement)
   window.EMUDBG = {
