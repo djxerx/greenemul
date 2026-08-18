@@ -47,7 +47,10 @@ export class Machine {
     this.dsw0 = 0x01;
     this.dsw1 = 0x00;          // OPTON2: low 2 bits 0 = FREE PLAY
     this.soundLatch = 0;
-    this.onSound = null;       // callback(soundByte)
+    // audio events recorded with CPU-cycle stamps so the sound renderer can
+    // place POKEY writes and latch changes correctly inside each burst
+    this.audioEvents = [];
+    this.burstStart = 0;
 
     this.vgHalted = true;
     this.pendingLines = null;  // most recent completed AVG frame
@@ -102,26 +105,40 @@ export class Machine {
     if (addr === 0x1600) { this.vgHalted = true; return; }   // VG reset
     if (addr === 0x1400) return;                  // watchdog
     if (addr === 0x1000) return;                  // coin counters
-    if (addr === 0x1840) {                        // sound latch
-      this.soundLatch = val;
-      this.onSound && this.onSound(val);
+    if (addr === 0x1840) {                        // discrete sound board latch
+      if (val !== this.soundLatch) {
+        this.soundLatch = val;
+        this.audioEvents.push({ cycle: this.cpu.cycles - this.burstStart, latch: val });
+      }
       return;
     }
     if (addr >= 0x1860 && addr < 0x1880) {
       this.mathbox.start(addr - 0x1860, val);
       return;
     }
-    if (addr >= 0x1820 && addr < 0x1830) return;  // POKEY writes (POTGO etc.)
+    if (addr >= 0x1820 && addr < 0x1830) {        // POKEY
+      const reg = addr & 0x0F;
+      if (reg <= 8) {                             // AUDF1-4 / AUDC1-4 / AUDCTL
+        this.audioEvents.push({ cycle: this.cpu.cycles - this.burstStart, reg, val });
+      }
+      return;                                     // POTGO/SKCTL need no action
+    }
   }
 
   // ---------------------------------------------------------------- POKEY
   pokeyRead(reg) {
     if (reg === 0x08) {                           // ALLPOT
-      // movement switches active LOW in the low nibble; fire bit4 and
-      // start bit5 active HIGH
-      let v = (~this.moveBits) & 0x0F;
-      if (this.fire) v |= 0x10;
-      if (this.start) v |= 0x20;
+      // Stick switches are ACTIVE HIGH and idle must read 0 -- LETCHK does
+      // "LDA ALLPOT / AND #3 / BNE" and treats any set bit as the stick being
+      // pushed, so a non-zero idle value makes the initials screen spin.
+      // Hardware bit order (derived from MOTION's MTAB dispatch):
+      //   bit0 = R-back, bit1 = R-fwd, bit2 = L-back, bit3 = L-fwd
+      // Our moveBits order is bit0 R-fwd, bit1 R-back, bit2 L-fwd, bit3 L-back.
+      const m = this.moveBits;
+      let v = ((m & 1) << 1) | ((m >> 1) & 1) |
+              (((m >> 2) & 1) << 3) | (((m >> 3) & 1) << 2);
+      if (this.fire) v |= 0x10;                   // PL1FIR, active high
+      if (this.start) v |= 0x20;                  // START, active high
       return v;
     }
     if (reg === 0x0A) {                           // RANDOM: 17-bit poly LFSR
@@ -139,6 +156,8 @@ export class Machine {
   // completed vector frame (line list) or null.
   run(cycles) {
     const target = this.cpu.cycles + cycles;
+    this.burstStart = this.cpu.cycles;
+    this.audioEvents.length = 0;
     let frame = null;
     while (this.cpu.cycles < target) {
       if (this.cpu.cycles >= this.nextNmi) {

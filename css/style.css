@@ -11,38 +11,65 @@ html, body {
   color: #20ff40; font-size: 18px; pointer-events: none;
 }
 #controls {
-  position: fixed; top: max(8px, env(safe-area-inset-top)); left: 50%;
+  position: fixed; bottom: max(8px, env(safe-area-inset-bottom)); left: 50%;
   transform: translateX(-50%); z-index: 10;
-  display: flex; align-items: center; gap: 6px;
+  display: flex; align-items: center; justify-content: center;
+  flex-wrap: wrap; gap: 6px;
+  max-width: calc(100vw - 16px); box-sizing: border-box;
   background: rgba(0,10,0,.8); border: 1px solid #20ff40; border-radius: 8px;
   padding: 6px 10px; opacity: .5;
 }
 #controls:hover { opacity: 1; }
+#controls .hidden { display: none; }
 #controls button {
   background: #01230a; color: #20ff40; border: 1px solid #20ff40;
   border-radius: 4px; font-family: inherit; font-size: 12px;
   min-width: 40px; height: 32px; cursor: pointer;
 }
-#controls input[type=range] { width: 100px; accent-color: #20ff40; }
+#controls input[type=range] { width: 78px; accent-color: #20ff40; }
 #controls span { color: #20ff40; font-size: 11px; }
+#controls .lbl { opacity: .6; font-size: 10px; letter-spacing: 1px; }
 #help {
-  position: fixed; bottom: max(6px, env(safe-area-inset-bottom)); width: 100%;
+  position: fixed; bottom: calc(max(8px, env(safe-area-inset-bottom)) + 52px);
+  width: 100%;
   text-align: center; color: #20ff40; opacity: .35; font-size: 11px;
   pointer-events: none;
 }
 .tread {
-  position: fixed; bottom: 80px; width: 64px; height: 180px;
+  position: fixed; bottom: var(--touch-bottom, 96px); width: 64px; height: 180px;
   border: 1.5px solid rgba(32,255,64,.5); border-radius: 32px;
   background: rgba(32,255,64,.04); z-index: 5;
 }
 #tread-left { left: 20px; }
 #tread-right { right: 20px; }
+/* knob shows where the tread lever is being held */
+.tread .knob {
+  position: absolute; left: 50%; top: 50%;
+  width: 50px; height: 50px; margin: -25px 0 0 -25px;
+  border-radius: 50%;
+  background: rgba(32,255,64,.25);
+  border: 1.5px solid rgba(32,255,64,.85);
+  pointer-events: none;
+}
+/* centre detent line */
+.tread::after {
+  content: ""; position: absolute; left: 12px; right: 12px; top: 50%;
+  border-top: 1px dashed rgba(32,255,64,.35);
+}
 #btn-fire {
-  position: fixed; bottom: 120px; right: 110px; z-index: 5;
-  width: 80px; height: 80px; border-radius: 50%;
+  position: fixed; bottom: calc(var(--touch-bottom, 96px) + 40px);
+  right: 104px; z-index: 5;
+  width: 84px; height: 84px; border-radius: 50%;
   border: 1.5px solid rgba(255,96,64,.7); background: rgba(255,64,32,.12);
   color: rgba(255,96,64,.9); font-family: inherit; font-size: 13px;
 }
+#btn-fire.lit { background: rgba(255,64,32,.42); }
 @media (hover: hover) and (pointer: fine) {
   .tread, #btn-fire { display: none; }   /* touch controls only on touch devices */
+}
+/* on touch screens the keyboard hints are noise, and would sit under the sticks */
+@media (pointer: coarse) {
+  #help { display: none; }
+  #controls { opacity: .92; }
+  #controls button { min-width: 46px; height: 38px; }
 }
