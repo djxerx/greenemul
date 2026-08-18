@@ -14,10 +14,12 @@ let speed = 0.93;                  // default machine speed (slider 0.60-1.00)
 let lastLines = [];
 const sound = new SoundOutput(CPU_HZ);
 
-// advance the machine and feed the audio renderer in one place
-function advance(cycles) {
+// Advance the machine and feed the audio renderer in one place.
+// `wallSeconds` is the real elapsed time the burst stands for; audio buffers
+// are sized from it so playback never starves when the machine runs slowed.
+function advance(cycles, wallSeconds) {
   const f = machine.run(cycles);
-  sound.pump(cycles, machine.audioEvents);
+  sound.pump(cycles, machine.audioEvents, wallSeconds);
   if (f) lastLines = f;
   return f;
 }
@@ -233,6 +235,8 @@ document.getElementById("btn-step").onclick = () => {
 
 const toneSlider = document.getElementById("tone");
 const toneVal = document.getElementById("toneval");
+sound.tone = parseFloat(toneSlider.value);
+toneVal.textContent = sound.tone.toFixed(2) + "x";
 toneSlider.oninput = () => {
   sound.tone = parseFloat(toneSlider.value);
   toneVal.textContent = sound.tone.toFixed(2) + "x";
@@ -274,11 +278,28 @@ btnTop.onclick = () => { topView = !topView; if (!topView) topFrozen = null; syn
 btnFreeze.onclick = () => { toggleFreeze(); syncTopBtn(); };
 syncTopBtn();
 
+// Sound is on by default, but a browser will not start an AudioContext until
+// the page has seen a real user gesture -- so arm it now and unlock on the
+// first click/tap/keypress, rather than making the user find the button.
 const btnSound = document.getElementById("btn-sound");
+let soundWanted = true;
+function syncSoundBtn() {
+  btnSound.textContent = soundWanted ? "MUTE" : "SOUND";
+  btnSound.style.opacity = soundWanted ? "1" : "0.55";
+}
 btnSound.onclick = () => {
-  if (sound.enabled) { sound.disable(); btnSound.textContent = "SOUND"; }
-  else { sound.enable(); btnSound.textContent = "MUTE"; }
+  soundWanted = !soundWanted;
+  if (soundWanted) sound.enable(); else sound.disable();
+  syncSoundBtn();
 };
+syncSoundBtn();
+function unlockAudio() {
+  if (soundWanted) sound.enable();
+  removeEventListener("pointerdown", unlockAudio, true);
+  removeEventListener("keydown", unlockAudio, true);
+}
+addEventListener("pointerdown", unlockAudio, true);
+addEventListener("keydown", unlockAudio, true);
 
 // touch tread sliders (twin sticks) for iPad
 const touchState = { left: 0, right: 0 };
@@ -320,7 +341,7 @@ function frame(now) {
   requestAnimationFrame(frame);
   const dt = Math.min(0.1, (now - last) / 1000);
   last = now;
-  if (machine && running) advance(Math.round(CPU_HZ * dt * speed));
+  if (machine && running) advance(Math.round(CPU_HZ * dt * speed), dt);
   paint(lastLines);
 }
 

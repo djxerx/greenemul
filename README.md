@@ -25,19 +25,32 @@ in the browser. This is the reference for fine-tuning the remake in
   pitch, and soft/loud shell fire.
 - **DIP switches**: free play, 3 lives, missile at 5000, English
 
-Press **SOUND** in the toolbar to enable audio (browsers require a click
-before starting an AudioContext). The **TONE** slider retunes only the three
-analog-board sounds (engine, shell, explosion), because those are approximated
-rather than emulated — POKEY's pitches come from real register values and are
-never touched by it. The engine drones at 58 Hz idle / 82 Hz moving; keep
-TONE above about 0.45x or that fundamental falls below hearing and you
-hear the individual cycles as clicks rather than a tone.
+Sound is **on by default**. A browser will not start an AudioContext until the
+page has seen a user gesture, so it unlocks automatically on your first click,
+tap or keypress; the toolbar button then mutes/unmutes.
+
+The **TONE** slider (default **0.60x**) retunes only the three analog-board
+sounds (engine, shell, explosion), because those are approximated rather than
+emulated — POKEY's pitches come from real register values and are never touched
+by it. At 0.60x the engine drones at about 35 Hz idle / 50 Hz moving. Do not go
+below roughly **0.45x**: the fundamental then drops under ~25 Hz, where you stop
+hearing a tone and start hearing the individual cycles as clicks.
+
+POKEY's beeps are mixed at 0.38 relative to the analog-board sounds
+(`POKEY_MIX` in `js/sound.js`) — by raw energy they were already the quieter
+of the two, but the board sounds sit at 35–50 Hz where the ear is far less
+sensitive, so they need the headroom to read as loud as they should.
 
 What you'll hear: your engine rumble
 changing pitch as you drive, shell fire, explosions, the radar beep, warning
 and saucer tones, and — most useful for tuning — the **enemy tank motor**,
 whose volume POKEY channels 3/4 modulate by distance (`DRADAR` sets
 `CHAN3V`/`CHAN4V` from `TDIST`), exactly as the arcade did.
+
+Audio buffers are sized by real elapsed time rather than emulated time, so
+running the machine below 1.00x does not starve playback; the emulated
+interval is stretched across the wall interval instead, which also means a
+slowed machine sounds correspondingly lower, as real hardware would.
 
 Not emulated: the analog discrete circuit at netlist level (MAME does this;
 here it's approximated), self-test, coin counters, EAROM.

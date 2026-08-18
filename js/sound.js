@@ -8,6 +8,13 @@
 //   bit6 lamps off                   bit7 sound/rumble enable
 import { Pokey } from "./pokey.js";
 
+// How loud POKEY (the beeps, warning tone, saucer warble, missile whine) sits
+// against the analog-board sounds (engine rumble, shell, explosion).
+// Measured, POKEY is already the quieter of the two by RMS -- but the board
+// sounds live at 35-50 Hz where the ear is ~30 dB less sensitive, so equal
+// energy is nowhere near equal loudness. Pulled down to match by ear.
+const POKEY_MIX = 0.38;
+
 export class SoundOutput {
   constructor(cpuHz) {
     this.cpuHz = cpuHz;
@@ -22,7 +29,7 @@ export class SoundOutput {
     // -- they are the analog board, approximated.  `tone` scales every pitch
     // and filter cutoff here so it can be dialled in by ear; POKEY is
     // unaffected by it.
-    this.tone = 1.0;
+    this.tone = 0.6;   // default set to taste; see the TONE slider
     this.engPhase = 0;
     this.throbPhase = 0;
     this.engEnv = 0;
@@ -109,17 +116,29 @@ export class SoundOutput {
     return out;
   }
 
-  // Called once per emulated burst. `events` is [{cycle, reg, val, latch}]
-  // recorded by the machine, `cycles` is how long the burst was.
-  pump(cycles, events) {
+  // Called once per emulated burst.  `events` is [{cycle, reg, val, latch}]
+  // recorded by the machine, `cycles` is the emulated length of the burst, and
+  // `wallSeconds` is how much REAL time it represents.
+  //
+  // The buffer must be sized by wall time, not emulated time.  Sizing it by
+  // emulated time meant that at the default 0.93x machine speed we produced 7%
+  // less audio than the speaker consumed, the queue starved, and the playhead
+  // resynced with a hole in it roughly every 0.7 s -- an audible tick-tick.
+  // Rendering the emulated interval stretched across the wall interval also
+  // gives the physically right result: a machine running slow sounds lower.
+  pump(cycles, events, wallSeconds) {
     if (!this.enabled || !this.ctx || cycles <= 0) {
       // still apply register writes so state stays correct when muted
       for (const e of events) this.applyEvent(e);
       return;
     }
     const sr = this.ctx.sampleRate;
-    const count = Math.max(1, Math.round(cycles * sr / this.cpuHz));
+    const emuSeconds = cycles / this.cpuHz;
+    const wall = (wallSeconds && wallSeconds > 0) ? wallSeconds : emuSeconds;
+    const count = Math.max(1, Math.round(wall * sr));
     if (count > sr) { for (const e of events) this.applyEvent(e); return; }  // huge jump: skip
+    // effective rate the chip is sampled at so `emuSeconds` fills `count` samples
+    const srEff = count / emuSeconds;
 
     const buf = this.ctx.createBuffer(1, count, sr);
     const data = buf.getChannelData(0);
@@ -130,19 +149,20 @@ export class SoundOutput {
     const evs = events.slice().sort((a, b) => a.cycle - b.cycle);
     while (ei < evs.length) {
       const e = evs[ei++];
-      const pos = Math.min(count, Math.max(0, Math.round(e.cycle * sr / this.cpuHz)));
-      if (pos > done) { this.pokey.render(pk, done, pos - done, sr); done = pos; }
+      const pos = Math.min(count, Math.max(0, Math.round(e.cycle / cycles * count)));
+      if (pos > done) { this.pokey.render(pk, done, pos - done, srEff); done = pos; }
       this.applyEvent(e);
     }
-    if (done < count) this.pokey.render(pk, done, count - done, sr);
+    if (done < count) this.pokey.render(pk, done, count - done, srEff);
 
     for (let i = 0; i < count; i++) {
-      let v = pk[i] * 0.85 + this.discreteSample(sr);
+      const v = pk[i] * POKEY_MIX + this.discreteSample(srEff);
       data[i] = Math.max(-1, Math.min(1, v));
     }
 
     const now = this.ctx.currentTime;
-    if (this.playhead < now + 0.01) this.playhead = now + 0.06;   // resync after a stall
+    // Keep ~100 ms of lead so an occasional long frame cannot starve the queue.
+    if (this.playhead < now + 0.02) this.playhead = now + 0.10;   // resync after a stall
     // If we're emulating faster than real time the queue would run away and
     // add seconds of latency -- drop the chunk instead of buffering it.
     if (this.playhead > now + 0.35) return;
