@@ -29,7 +29,11 @@ Press **SOUND** in the toolbar to enable audio (browsers require a click
 before starting an AudioContext). The **TONE** slider retunes only the three
 analog-board sounds (engine, shell, explosion), because those are approximated
 rather than emulated — POKEY's pitches come from real register values and are
-never touched by it. What you'll hear: your engine rumble
+never touched by it. The engine drones at 58 Hz idle / 82 Hz moving; keep
+TONE above about 0.45x or that fundamental falls below hearing and you
+hear the individual cycles as clicks rather than a tone.
+
+What you'll hear: your engine rumble
 changing pitch as you drive, shell fire, explosions, the radar beep, warning
 and saucer tones, and — most useful for tuning — the **enemy tank motor**,
 whose volume POKEY channels 3/4 modulate by distance (`DRADAR` sets
@@ -69,8 +73,9 @@ then open `http://localhost:8322`. Free play is set: press **START** (or Enter).
   drag the panel's top-right corner (or **[** / **]**) to resize.
   While the overlay is up, **X** is the left tread lever instead of Z.
 - **F** pause · **>|** step one 4 ms NMI period while paused · **SPD** slider
-  (0.1×–1×) slows the whole machine for study · **TONE** slider adjusts the
-  pitch of the engine/shell/explosion only (see the sound note below)
+  (0.60×–1.00×, default 0.93×) slows the whole machine for study · **TONE**
+  slider adjusts the pitch of the engine/shell/explosion only (see sound note)
+
 ### On an iPad
 
 Touch controls appear automatically on any touch device: **two vertical tread

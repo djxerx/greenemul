@@ -24,6 +24,8 @@ export class SoundOutput {
     // unaffected by it.
     this.tone = 1.0;
     this.engPhase = 0;
+    this.throbPhase = 0;
+    this.engEnv = 0;
     this.eng1 = 0; this.eng2 = 0; this.eng3 = 0;
     this.exp1 = 0; this.exp2 = 0; this.exp3 = 0;
     this.sh1 = 0; this.sh2 = 0;
@@ -61,17 +63,27 @@ export class SoundOutput {
     let out = 0;
     const noise = Math.random() * 2 - 1;
 
-    // engine: narrow pulse train + noise, heavily lowpassed into a putt-putt
-    const engHz = ((L & 0x10) ? 30 : 19) * t;
+    // Engine: a low but AUDIBLE drone -- fundamental plus two harmonics,
+    // amplitude-modulated by a slow throb for motor character.  An earlier
+    // version ran a hard-edged pulse at 19 Hz; that is below hearing, so each
+    // edge landed as a separate click and the whole thing read as static.
+    // The waveform is continuous and the filters are always driven (even when
+    // the rumble bit is low) so switching it on and off cannot click either.
+    const engHz = ((L & 0x10) ? 82 : 58) * t;
     this.engPhase += engHz / sr;
     if (this.engPhase >= 1) this.engPhase -= 1;
-    if (L & 0x80) {
-      const pulse = this.engPhase < 0.28 ? 1 : -0.35;
-      const a = this.coef(105 * t, sr);
-      this.eng1 += (pulse + noise * 0.8 - this.eng1) * a;
+    this.throbPhase += (engHz / 4) / sr;
+    if (this.throbPhase >= 1) this.throbPhase -= 1;
+    const engTarget = (L & 0x80) ? 1 : 0;
+    this.engEnv += (engTarget - this.engEnv) * 0.003;
+    {
+      const ph = this.engPhase * 2 * Math.PI;
+      const wave = Math.sin(ph) + 0.45 * Math.sin(2 * ph) + 0.2 * Math.sin(3 * ph);
+      const throb = 0.78 + 0.22 * Math.sin(this.throbPhase * 2 * Math.PI);
+      const a = this.coef(320 * t, sr);
+      this.eng1 += (wave * throb + noise * 0.3 - this.eng1) * a;
       this.eng2 += (this.eng1 - this.eng2) * a;
-      this.eng3 += (this.eng2 - this.eng3) * a;
-      out += this.eng3 * 0.15;
+      out += this.eng2 * this.engEnv * 0.13;
     }
 
     // explosion: deep boom held while the bit is set (bit1 LOX = lower)
