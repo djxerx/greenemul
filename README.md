@@ -126,10 +126,11 @@ shells in flight. The enemy marker disappears the instant it is destroyed
 (`COLFLG+2` goes nonzero at the hit — verified: it holds through the ~3.2 s of
 debris, then clears at respawn).
 
-Widgets on the panel: **−/+** zoom (top-left), resize grip (top-right corner,
-drag it), and a **Z** button (bottom-right) that toggles the freeze. The map
-can also be **panned**: drag with the mouse, or with two fingers on touch —
-panning freezes the frame automatically; Z / FRZ re-centres on the player.
+One widget per corner: **−/+** zoom (top-left), a **move box** (top-right —
+drag it to reposition the whole panel anywhere on screen), **Z** freeze
+(bottom-left), and the **resize grip** (bottom-right). The map inside can also
+be **panned**: drag with the mouse, or with two fingers on touch — panning
+freezes the frame automatically; Z / FRZ re-centres on the player.
 
 **Z freezes the field.** Normally the map is centred on the player and rotates
 with them. Press Z and the map locks to the world frame where you stood, so the
@@ -141,6 +142,50 @@ It is strictly **read-only**: it peeks at emulated zero-page RAM (`TPOSX`/
 `TPOSY`/`TANGLE` at 0x2D/0x31/0x2A and friends), never writes memory and never
 advances the CPU. Verified by snapshotting PC, cycle count and RAM across
 repeated overlay renders — byte-identical. The game cannot tell it is there.
+
+## Trainer options (gear panel)
+
+These poke emulated RAM from outside, the way a cheat cartridge would — **the
+ROM is never modified**.
+
+- **SUPER** — jump straight to super tanks. `TR7CHK` gives you the TR7 once
+  `NOR2D3 >= 5`; that counter starts at −1 and increments per missile, so 5
+  means *after the 6th missile*. The option just holds it at 5.
+- **MISSILE** — send missiles only. Whenever the live enemy is a tank, it is
+  replaced by replicating `R2D3CK`'s *entire* spawn: repositioned 24576 units
+  out (0.75 × 32768, the ROM's own X−X/4 math), within ±21° in front of the
+  player, with heading and goal aimed straight back at them, altitude
+  `STARTZ`, and the POKEY whine registers set. (An earlier version converted
+  the tank in place with its old goal angle — and since `BUZBOM` slews its
+  goal at only ±2 angle units per tick, those missiles flew huge sideways
+  arcs and circles the real game never produces.)
+
+  **Missile tracks.** The weave is real (an earlier note here said otherwise —
+  it is just never called a "path" in the source). In `BUZBOM`:
+  `heading = bearing-to-player ± (FRAME mod 32)`, the sign flipping on frame
+  counter bit 3 — a serpentine whose lean grows to ~44° and reverses every 8
+  game ticks. It runs only while `TDIST` exceeds a threshold of
+  `max(8, MISLVL + 25 − score-in-thousands)`, so missiles bore in straight for
+  the final stretch, and the straight stretch shortens as your score climbs.
+  The **first missile never weaves** (`NOR2D3 = 0` skips the whole block).
+  Which "track" you see is set by the frame counter's phase (0–31) when the
+  missile enters weave range — a handful of visually distinct families, which
+  is why players describe "5 or 6 predefined paths that vary". Verified
+  against the running ROM: 1499 of 1500 sampled headings match this formula.
+  While a missile is alive, an orange readout above the toolbar shows
+  `MISSILE · TRACK n · WEAVE ±k` (or STRAIGHT / TERMINAL), where n is that
+  entry phase.
+- **SCORES** — high scores are read out of `HSCTBL` (0x300) and `INITLS`
+  (0x31E) every few seconds into localStorage, and injected back two seconds
+  after boot, once the ROM has built its own table. **CLEAR** wipes the saved
+  table and restores the ROM's ten default 5000s.
+
+## Playing muted
+
+Two on-screen cues stand in for audio that carries gameplay information:
+a **saucer** icon (bottom right) whenever the saucer is on the field and
+warbling, and a red **projectile** arrow for one second each time the enemy
+fires.
 
 ## Using it to tune the remake
 

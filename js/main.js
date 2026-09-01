@@ -100,14 +100,21 @@ function paint(lines) {
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     drawTopView(ctx, readState(machine), {
       half: topHalf, rangeWu: topRangeWu / topZoom, fovDeg: 60,
-      origin: topFrozen,
+      origin: topFrozen, pos: topPos,
     });
+  }
+  if (machine) {
+    const dpr2 = Math.min(devicePixelRatio || 1, 2);
+    ctx.setTransform(dpr2, 0, 0, dpr2, 0, 0);
+    drawMuteCues(ctx);
   }
 }
 
 let topView = false, topZoom = 1, topHalf = 110;
+let topPos = null;                 // {x,y} top-left once the panel has been moved
 let topFrozen = null;              // {x,y,a} world frame when the map is frozen
 const topRangeWu = 20000;
+const geom = () => panelGeom(topHalf, topPos);
 
 // Z freezes the field in place so the player icon moves within the window;
 // pressing Z again re-centres on the player.
@@ -317,11 +324,16 @@ canvas.addEventListener("pointerdown", (e) => {
   if (!machine) return;
   const rec = { kind: "tap", x: e.clientX, y: e.clientY,
                 x0: e.clientX, y0: e.clientY, t0: performance.now() };
-  const hit = topView ? hitTest(e.clientX, e.clientY, panelGeom(topHalf)) : null;
+  const hit = topView ? hitTest(e.clientX, e.clientY, geom()) : null;
   if (hit === "plus") { topZoom = Math.min(6, topZoom * 1.25); rec.kind = "widget"; }
   else if (hit === "minus") { topZoom = Math.max(0.25, topZoom / 1.25); rec.kind = "widget"; }
   else if (hit === "zbtn") { toggleFreeze(); syncTopBtn(); rec.kind = "widget"; }
   else if (hit === "grip") rec.kind = "grip";
+  else if (hit === "move") {
+    const g = geom();
+    topPos = { x: g.left, y: g.top };
+    rec.kind = "move";
+  }
   else if (hit === "panel") {
     // mouse drags pan directly; touches pan when two fingers are down
     rec.kind = e.pointerType === "mouse" ? "pan" : "panelTouch";
@@ -345,9 +357,17 @@ canvas.addEventListener("pointermove", (e) => {
   const dx = e.clientX - q.x, dy = e.clientY - q.y;
   if (q.kind === "tap" && Math.hypot(e.clientX - q.x0, e.clientY - q.y0) > 12) q.kind = "dead";
   if (q.kind === "grip") {
-    const bottom = innerHeight - 62;
-    const half = Math.max((e.clientX - 14) / 2, (bottom - e.clientY) / 2);
+    const g = geom();
+    const half = Math.max(e.clientX - g.left, e.clientY - g.top) / 2;
     topHalf = Math.max(70, Math.min(340, half));
+  } else if (q.kind === "move") {
+    // keep a grabbable strip on screen rather than forcing the whole panel
+    // inside, so a panel larger than the window can still be dragged
+    const w = topHalf * 2, keep = 90;
+    topPos = {
+      x: Math.max(keep - w, Math.min(innerWidth - keep, topPos.x + dx)),
+      y: Math.max(0, Math.min(Math.max(0, innerHeight - 40), topPos.y + dy)),
+    };
   } else if (q.kind === "pan") {
     panTopView(dx, dy);
   } else if (q.kind === "panelTouch") {
@@ -419,6 +439,202 @@ document.getElementById("ctrl-side").onclick = () => {
 };
 applyCtrlScheme();
 
+// ---------------------------------------------------------------- trainer
+// Everything below pokes emulated RAM from the outside, the way a cheat
+// cartridge would. The ROM is never modified.
+//   HSCTBL 0x300 (10 x 3 bytes, BCD score)   INITLS 0x31E (10 x 3 chars)
+//   NOR2D3 0x2EC  missiles seen this game, starts at -1; TR7CHK gives super
+//                 tanks once it reaches 5 -- i.e. after the 6th missile
+//   R2D3FL 0xCB   -1 while the current enemy is a missile
+//   STATE  0xC5   0x80 = attack     EXPOSZ+C/D 0x2E4/0x2E5 = missile altitude
+//   SAUCER 0xDE   nonzero while the saucer is on the field (and warbling)
+//   FIRECT+2 0x26 enemy shell timer, set to 0x7F the moment it fires
+const AD = { HSCTBL: 0x300, INITLS: 0x31E, NOR2D3: 0x2EC, R2D3FL: 0xCB,
+             STATE: 0xC5, EXPOSZ: 0x2D8, SAUCER: 0xDE, EFIRE: 0x26,
+             ATRACT: 0xCE, TANGLE2: 0x2C, FTIMER: 0xD1, EIRNGE: 0xC9 };
+
+let train = { superTanks: false, missilesOnly: false, saveScores: true };
+try { Object.assign(train, JSON.parse(localStorage.getItem("bz.emu.train") || "{}")); } catch {}
+function saveTrain() {
+  try { localStorage.setItem("bz.emu.train", JSON.stringify(train)); } catch {}
+  for (const [k, id] of [["superTanks","tr-super"],["missilesOnly","tr-missile"],
+                         ["saveScores","tr-savescores"]]) {
+    const el = document.getElementById(id);
+    if (el) { el.textContent = train[k] ? "ON" : "OFF";
+              el.style.opacity = train[k] ? "1" : "0.55"; }
+  }
+}
+
+// --- high scores kept in localStorage and injected back into RAM ---
+function readScores() {
+  if (!machine) return null;
+  return { s: [...machine.ram.slice(AD.HSCTBL, AD.HSCTBL + 30)],
+           i: [...machine.ram.slice(AD.INITLS, AD.INITLS + 30)] };
+}
+function writeScores(o) {
+  if (!machine || !o || !o.s || o.s.length !== 30) return;
+  machine.ram.set(Uint8Array.from(o.s), AD.HSCTBL);
+  machine.ram.set(Uint8Array.from(o.i), AD.INITLS);
+}
+function persistScores() {
+  const o = readScores();
+  if (o) try { localStorage.setItem("bz.emu.scores", JSON.stringify(o)); } catch {}
+}
+function clearScores() {
+  try { localStorage.removeItem("bz.emu.scores"); } catch {}
+  // restore the ROM's own defaults: ten entries of 5000, blank-ish initials
+  if (machine) {
+    for (let i = 0; i < 10; i++) {
+      machine.ram[AD.HSCTBL + i*3] = 0x05;
+      machine.ram[AD.HSCTBL + i*3 + 1] = 0x00;
+      machine.ram[AD.HSCTBL + i*3 + 2] = 0x00;
+    }
+  }
+}
+let scoresInjected = false, scoreSaveTimer = 0;
+
+// --- per-frame trainer poke, called once per rendered frame ---
+let prevEnemyFire = 0, lastEnemyShotAt = -99, prevSaucer = 0;
+function trainerTick(dtSec) {
+  if (!machine) return;
+  const r = machine.ram;
+  // inject saved high scores once the ROM has finished its own table setup
+  if (!scoresInjected && machine.cpu.cycles > CPU_HZ * 2) {
+    scoresInjected = true;
+    if (train.saveScores) {
+      try { const o = JSON.parse(localStorage.getItem("bz.emu.scores") || "null");
+            if (o) writeScores(o); } catch {}
+    }
+  }
+  if (train.saveScores && scoresInjected) {
+    scoreSaveTimer += dtSec;
+    if (scoreSaveTimer > 3) { scoreSaveTimer = 0; persistScores(); }
+  }
+  const inGame = r[AD.ATRACT] === 0xFF;
+  if (inGame) {
+    // skip straight to super tanks: TR7CHK wants NOR2D3 >= 5
+    if (train.superTanks && r[AD.NOR2D3] !== 0xFF && r[AD.NOR2D3] < 5) r[AD.NOR2D3] = 5;
+    if (train.superTanks && r[AD.NOR2D3] === 0xFF) r[AD.NOR2D3] = 5;
+    // Missiles only: whenever the live enemy is a tank, replace it with a
+    // missile by replicating R2D3CK's ENTIRE spawn, not just the flags.
+    //
+    // An earlier version converted the tank in place, keeping its position and
+    // its old goal angle. BUZBOM slews RGOAL toward the player at only +/-2
+    // angle units per 64 ms tick, so a missile born sideways-on flew huge arcs
+    // and circles -- behaviour the real game never shows, because R2D3CK
+    // always spawns missiles IN FRONT of the player, already aimed at them.
+    // Measured from a genuine spawn: distance exactly 24576 (0.75 x 32768),
+    // bearing = player heading +/- (rand & 0x0F), TANGLE+2 = RGOAL = bearing
+    // back to the player, altitude STARTZ = 0x1800.
+    if (train.missilesOnly && !(r[AD.R2D3FL] & 0x80) && r[0x14] === 0) {
+      const w16 = a => r[a] | (r[a + 1] << 8);
+      const px = w16(0x2D), py = w16(0x31);
+      const off = Math.floor(Math.random() * 16) * (Math.random() < 0.5 ? 1 : -1);
+      const ang = (r[0x2A] + off + 256) & 0xFF;          // spawn bearing (game units)
+      const rad = ang * Math.PI / 128;
+      const ex = (px + Math.round(24576 * Math.cos(rad)) + 65536) & 0xFFFF;
+      const ey = (py + Math.round(24576 * Math.sin(rad)) + 65536) & 0xFFFF;
+      r[0x2F] = ex & 0xFF; r[0x30] = ex >> 8;            // TPOSX+2
+      r[0x33] = ey & 0xFF; r[0x34] = ey >> 8;            // TPOSY+2
+      const back = (ang + 128) & 0xFF;                   // bearing to player
+      r[AD.TANGLE2] = back;                              // TANGLE+2
+      r[0xBC] = back;                                    // RGOAL
+      r[AD.R2D3FL] = 0xFF;
+      r[AD.STATE] = 0x80;
+      r[AD.EXPOSZ + 0x0C] = 0x00;                        // STARTZ = 0x1800
+      r[AD.EXPOSZ + 0x0D] = 0x18;
+      r[AD.FTIMER] = 0; r[AD.EIRNGE] = 0;
+      r[0xCA] = 0;                                       // OBJCOL+2 (hop latch)
+      r[AD.NOR2D3] = (r[AD.NOR2D3] + 1) & 0xFF;          // INC NOR2D3, as R2D3CK
+      // the missile whine: R2D3CK writes POKEY CHAN3F/CHAN4F
+      machine.writeByte(0x1824, 0xFF);
+      machine.writeByte(0x1826, 0xFE);
+    }
+  }
+  // cues for playing muted
+  const ef = r[AD.EFIRE];
+  if (ef !== 0 && prevEnemyFire === 0) lastEnemyShotAt = performance.now();
+  prevEnemyFire = ef;
+  prevSaucer = r[AD.SAUCER];
+}
+
+// --- missile track readout ---
+// BUZBOM's weave: heading = RGOAL +/- (FRAME & 0x1F), sign from FRAME bit 3,
+// active only while TDIST exceeds a score-shrinking threshold, and never for
+// the first missile (NOR2D3 == 0). The "track" is the frame-counter phase
+// (0-31) at the moment weave mode begins -- that phase is what makes one
+// approach look different from another.
+let mslTrack = null, mslWasWeaving = false;
+function missileInfo() {
+  const r = machine.ram;
+  if (!(r[AD.R2D3FL] & 0x80) || r[0x14] !== 0) { mslTrack = null; mslWasWeaving = false; return null; }
+  const frame = r[0xC6], tdist = r[0x2E8], nor = r[AD.NOR2D3];
+  const first = nor === 0;
+  // threshold, as the ROM computes it (BCD add, clamped to a floor of 8)
+  let thr = 8;
+  if (!first && r[0xB9] === 0) {
+    const mis = [0x05, 0x10, 0x20, 0x30][(machine.dsw0 >> 2) & 3];
+    const bcdAdd = (a, b) => { let lo = (a & 15) + (b & 15), hi = (a >> 4) + (b >> 4);
+      if (lo > 9) { lo -= 10; hi++; } return ((hi % 10) << 4) | lo; };
+    const t = bcdAdd(mis, 0x25) - r[0xB8];
+    thr = (t < 8) ? 8 : t;
+  }
+  const weaving = !first && tdist > thr;
+  if (weaving && !mslWasWeaving) mslTrack = frame & 0x1F;   // phase at weave entry
+  mslWasWeaving = weaving;
+  const off = frame & 0x1F;
+  const sign = (frame & 0x08) ? -1 : 1;
+  return { first, weaving, off: sign * off, track: mslTrack, tdist, thr };
+}
+
+// --- on-screen cues so a muted game still tells you what the audio would ---
+function drawMuteCues(c) {
+  if (!machine) return;
+  const r = machine.ram;
+  const x = innerWidth - 46, y = innerHeight - 150;
+  // missile track readout, bottom centre
+  const mi = missileInfo();
+  if (mi) {
+    c.save();
+    c.fillStyle = "rgba(255,150,80,0.9)";
+    c.font = "12px 'Courier New', monospace";
+    c.textAlign = "center";
+    const label = mi.first ? "MISSILE 1 · STRAIGHT"
+      : mi.weaving ? "MISSILE · TRACK " + mi.track + " · WEAVE " + (mi.off >= 0 ? "+" : "") + mi.off
+      : "MISSILE · TRACK " + (mi.track ?? "-") + " · TERMINAL";
+    // sit just above the toolbar (or near the bottom when the bar is hidden)
+    const bar = document.getElementById("controls");
+    const help = document.getElementById("help");
+    let yTxt = innerHeight - 14;
+    if (bar && bar.style.display !== "none") yTxt = bar.getBoundingClientRect().top - 10;
+    if (help && help.style.display !== "none" && getComputedStyle(help).display !== "none") {
+      yTxt = Math.min(yTxt, help.getBoundingClientRect().top - 8);
+    }
+    c.fillText(label, innerWidth / 2, yTxt);
+    c.textAlign = "left";
+    c.restore();
+  }
+  if (r[AD.SAUCER]) {                       // saucer on the field = warble
+    c.save();
+    c.strokeStyle = "rgba(120,200,255,0.95)"; c.lineWidth = 2;
+    c.beginPath(); c.ellipse(x, y, 16, 6, 0, 0, Math.PI * 2); c.stroke();
+    c.beginPath(); c.ellipse(x, y - 5, 8, 5, 0, Math.PI, Math.PI * 2); c.stroke();
+    c.restore();
+  }
+  if (performance.now() - lastEnemyShotAt < 1000) {   // enemy fired, 1 s cue
+    const y2 = y + 44;
+    c.save();
+    c.globalAlpha = 1 - (performance.now() - lastEnemyShotAt) / 1000;
+    c.strokeStyle = "rgba(255,80,60,1)"; c.lineWidth = 2.5;
+    c.beginPath();
+    c.moveTo(x - 14, y2); c.lineTo(x + 8, y2);
+    c.moveTo(x + 8, y2); c.lineTo(x + 1, y2 - 6);
+    c.moveTo(x + 8, y2); c.lineTo(x + 1, y2 + 6);
+    c.stroke();
+    c.restore();
+  }
+}
+
 // ---- cabinet DIP switches (the OPTION bank at 0x0A00) ----
 // dsw0 = (lives-2) | missileIdx<<2 | bonusIdx<<4 | langIdx<<6
 const DIP_CHOICES = {
@@ -445,6 +661,34 @@ for (const k of Object.keys(DIP_CHOICES)) {
   if (el) el.onclick = () => { dips[k] = (dips[k] + 1) & 3; applyDips(); };
 }
 applyDips();
+
+// ---- volume group sliders ----
+for (const [id, key] of [["vol-engine","volEngine"],["vol-shots","volShots"],["vol-other","volOther"]]) {
+  const el = document.getElementById(id), lab = document.getElementById(id + "-v");
+  if (!el) continue;
+  const saved = parseFloat(localStorage.getItem("bz.emu." + key) || "1");
+  el.value = saved; sound[key] = saved; lab.textContent = saved.toFixed(2);
+  el.oninput = () => {
+    const v = parseFloat(el.value);
+    sound[key] = v; lab.textContent = v.toFixed(2);
+    try { localStorage.setItem("bz.emu." + key, String(v)); } catch {}
+  };
+}
+
+// ---- training options + high score persistence ----
+document.getElementById("tr-super").onclick = () => {
+  train.superTanks = !train.superTanks; saveTrain();
+};
+document.getElementById("tr-missile").onclick = () => {
+  train.missilesOnly = !train.missilesOnly; saveTrain();
+};
+document.getElementById("tr-savescores").onclick = () => {
+  train.saveScores = !train.saveScores;
+  if (!train.saveScores) { try { localStorage.removeItem("bz.emu.scores"); } catch {} }
+  saveTrain();
+};
+document.getElementById("tr-clearscores").onclick = () => clearScores();
+saveTrain();
 
 const btnTop = document.getElementById("btn-top");
 const btnFreeze = document.getElementById("btn-freeze");
@@ -520,7 +764,7 @@ function frame(now) {
   requestAnimationFrame(frame);
   const dt = Math.min(0.1, (now - last) / 1000);
   last = now;
-  if (machine && running) advance(Math.round(CPU_HZ * dt * speed), dt);
+  if (machine && running) { advance(Math.round(CPU_HZ * dt * speed), dt); trainerTick(dt); }
   paint(lastLines);
 }
 
@@ -534,7 +778,9 @@ loadRoms().then(roms => {
     paint: () => paint(lastLines),
     lines: () => lastLines,
     sound,
-    topState: () => ({ topView, topZoom, topHalf, frozen: topFrozen }),
+    topState: () => ({ topView, topZoom, topHalf, pos: topPos, frozen: topFrozen }),
+    tick: (dt) => trainerTick(dt),
+    train: () => train,
   };
   statusEl.textContent = "";
   requestAnimationFrame(frame);

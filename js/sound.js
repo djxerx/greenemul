@@ -30,6 +30,10 @@ export class SoundOutput {
     // and filter cutoff here so it can be dialled in by ear; POKEY is
     // unaffected by it.
     this.tone = 0.6;   // default set to taste; see the TONE slider
+    // per-group mix, driven by the three sliders in the gear panel
+    this.volEngine = 1.0;   // motor rumble
+    this.volShots = 1.0;    // gunshots + explosions
+    this.volOther = 1.0;    // everything POKEY makes (beeps, saucer, warning)
     this.engPhase = 0;
     this.throbPhase = 0;
     this.engEnv = 0;
@@ -76,7 +80,12 @@ export class SoundOutput {
     // edge landed as a separate click and the whole thing read as static.
     // The waveform is continuous and the filters are always driven (even when
     // the rumble bit is low) so switching it on and off cannot click either.
-    const engHz = ((L & 0x10) ? 82 : 58) * t;
+    // TONE may go well below 0.5, which is fine for the noise-based shell and
+    // explosion (it only darkens them) but would push the engine's fundamental
+    // under ~25 Hz, where you hear individual cycles as clicks. Floor the
+    // oscillator's pitch scale while letting the filters keep tracking `t`.
+    const tEng = Math.max(t, 0.5);
+    const engHz = ((L & 0x10) ? 82 : 58) * tEng;
     this.engPhase += engHz / sr;
     if (this.engPhase >= 1) this.engPhase -= 1;
     this.throbPhase += (engHz / 4) / sr;
@@ -90,7 +99,7 @@ export class SoundOutput {
       const a = this.coef(320 * t, sr);
       this.eng1 += (wave * throb + noise * 0.3 - this.eng1) * a;
       this.eng2 += (this.eng1 - this.eng2) * a;
-      out += this.eng2 * this.engEnv * 0.10;
+      out += this.eng2 * this.engEnv * 0.10 * this.volEngine;
     }
 
     // explosion: deep boom held while the bit is set (bit1 LOX = lower)
@@ -101,7 +110,7 @@ export class SoundOutput {
       this.exp1 += (noise - this.exp1) * a;
       this.exp2 += (this.exp1 - this.exp2) * a;
       this.exp3 += (this.exp2 - this.exp3) * a;
-      out += this.exp3 * this.expEnv * 3.2;
+      out += this.exp3 * this.expEnv * 3.2 * this.volShots;
     }
 
     // shell: short lowpassed noise thump, louder when LOUDSH is set
@@ -111,7 +120,7 @@ export class SoundOutput {
       const a = this.coef(320 * t, sr);
       this.sh1 += (noise - this.sh1) * a;
       this.sh2 += (this.sh1 - this.sh2) * a;
-      out += this.sh2 * this.shellEnv * 1.0;
+      out += this.sh2 * this.shellEnv * 1.0 * this.volShots;
     }
     return out;
   }
@@ -156,7 +165,7 @@ export class SoundOutput {
     if (done < count) this.pokey.render(pk, done, count - done, srEff);
 
     for (let i = 0; i < count; i++) {
-      const v = pk[i] * POKEY_MIX + this.discreteSample(srEff);
+      const v = pk[i] * POKEY_MIX * this.volOther + this.discreteSample(srEff);
       data[i] = Math.max(-1, Math.min(1, v));
     }
 

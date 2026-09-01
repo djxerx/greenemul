@@ -27,7 +27,7 @@
     <input id="speed" type="range" min="0.6" max="1" step="0.01" value="0.93">
     <span id="speedval">0.93x</span></div>
   <div class="row"><span class="lbl">TONE</span>
-    <input id="tone" type="range" min="0.3" max="2" step="0.05" value="0.6"
+    <input id="tone" type="range" min="0.15" max="2" step="0.05" value="0.6"
            title="Pitch of engine/shell/explosion (the analog board approximation)">
     <span id="toneval">0.60x</span></div>
   <div class="row"><span class="lbl">TOUCH</span>
@@ -42,6 +42,22 @@
     <button id="dip-missile" title="Cabinet DIP: score where the missile first appears">5000</button></div>
   <div class="row"><span class="lbl">LANG</span>
     <button id="dip-lang" title="Cabinet DIP: on-screen language">ENGLISH</button></div>
+  <div class="row"><span class="lbl">MOTOR</span>
+    <input id="vol-engine" type="range" min="0" max="2" step="0.05" value="1">
+    <span id="vol-engine-v">1.00</span></div>
+  <div class="row"><span class="lbl">SHOTS</span>
+    <input id="vol-shots" type="range" min="0" max="2" step="0.05" value="1">
+    <span id="vol-shots-v">1.00</span></div>
+  <div class="row"><span class="lbl">BEEPS</span>
+    <input id="vol-other" type="range" min="0" max="2" step="0.05" value="1">
+    <span id="vol-other-v">1.00</span></div>
+  <div class="row"><span class="lbl">SUPER</span>
+    <button id="tr-super" title="Training: jump straight to super tanks (NOR2D3 = 5)">OFF</button></div>
+  <div class="row"><span class="lbl">MISSILE</span>
+    <button id="tr-missile" title="Training: send missiles only">OFF</button></div>
+  <div class="row"><span class="lbl">SCORES</span>
+    <button id="tr-savescores" title="Remember high scores between sessions">ON</button>
+    <button id="tr-clearscores" title="Erase the saved high score table">CLEAR</button></div>
 </div>
 <div id="show-ui" class="hidden" title="Show controls">&#9776;</div>
 <div id="thumb-base" class="hidden"></div>

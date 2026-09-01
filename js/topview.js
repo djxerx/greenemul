@@ -47,25 +47,32 @@ export function readState(machine) {
   };
 }
 
-// Panel rectangle, anchored to the bottom-left of the window.
-export function panelGeom(half) {
-  const cx = 14 + half, cy = innerHeight - 62 - half;
-  return { cx, cy, half,
-           left: cx - half, right: cx + half, top: cy - half, bottom: cy + half };
+// Panel rectangle. `pos` is the panel's top-left corner once it has been
+// dragged; without one it sits at its default bottom-left anchor.
+export function panelGeom(half, pos) {
+  const w = half * 2;
+  const left = pos ? pos.x : 14;
+  const top = pos ? pos.y : innerHeight - 62 - w;
+  return { cx: left + half, cy: top + half, half,
+           left, top, right: left + w, bottom: top + w };
 }
 
-// Clickable widgets: zoom buttons at the panel's top-left, resize grip at the
-// top-right (the panel is anchored bottom-left, so dragging up/right grows it).
+// Clickable widgets, one per corner:
+//   top-left     - and +  (zoom)
+//   top-right    move box (drag to reposition the whole panel)
+//   bottom-left  Z        (freeze / re-centre)
+//   bottom-right resize grip
 export const BTN = 20;
 export function hitTest(x, y, g) {
   const B = BTN;
   if (y >= g.top + 4 && y <= g.top + 4 + B) {
     if (x >= g.left + 4 && x <= g.left + 4 + B) return "minus";
     if (x >= g.left + 8 + B && x <= g.left + 8 + 2 * B) return "plus";
+    if (x >= g.right - B - 4 && x <= g.right - 4) return "move";
   }
-  if (Math.abs(x - g.right) < 18 && Math.abs(y - g.top) < 18) return "grip";
-  if (x >= g.right - B - 4 && x <= g.right - 4 &&
-      y >= g.bottom - B - 4 && y <= g.bottom - 4) return "zbtn";
+  if (y >= g.bottom - B - 4 && y <= g.bottom - 4 &&
+      x >= g.left + 4 && x <= g.left + 4 + B) return "zbtn";
+  if (Math.abs(x - g.right) < 18 && Math.abs(y - g.bottom) < 18) return "grip";
   if (x >= g.left && x <= g.right && y >= g.top && y <= g.bottom) return "panel";
   return null;
 }
@@ -74,8 +81,8 @@ export function hitTest(x, y, g) {
 // `origin` (optional) freezes the map to a world frame; when omitted the map
 // is centred on the player and rotated so their facing points up.
 export function drawTopView(ctx, st, opts) {
-  const { half, rangeWu, fovDeg, origin } = opts;
-  const g = panelGeom(half);
+  const { half, rangeWu, fovDeg, origin, pos } = opts;
+  const g = panelGeom(half, pos);
   const { cx, cy } = g;
   const s = half / rangeWu;
   const o = origin || { x: st.px, y: st.py, a: st.pa };
@@ -225,16 +232,18 @@ export function drawTopView(ctx, st, opts) {
   };
   btn(g.left + 4, "−");
   btn(g.left + 8 + B, "+");
+  btn(g.right - B - 4, "\u2725");          // move box (top-right)
+  // resize grip, bottom-right
   ctx.strokeStyle = "rgba(32,255,64,0.7)";
   ctx.lineWidth = 1.4;
   ctx.beginPath();
-  ctx.moveTo(g.right - 14, g.top); ctx.lineTo(g.right, g.top + 14);
-  ctx.moveTo(g.right - 7, g.top); ctx.lineTo(g.right, g.top + 7);
+  ctx.moveTo(g.right - 14, g.bottom); ctx.lineTo(g.right, g.bottom - 14);
+  ctx.moveTo(g.right - 7, g.bottom); ctx.lineTo(g.right, g.bottom - 7);
   ctx.stroke();
 
   // freeze toggle button (bottom-right): replicates the Z key
   {
-    const zx = g.right - B - 4, zy = g.bottom - B - 4;
+    const zx = g.left + 4, zy = g.bottom - B - 4;
     ctx.fillStyle = "rgba(0,0,0,0.6)";
     ctx.fillRect(zx, zy, B, B);
     ctx.strokeStyle = origin ? "rgba(255,200,60,0.95)" : "rgba(32,255,64,0.7)";
@@ -250,6 +259,6 @@ export function drawTopView(ctx, st, opts) {
   ctx.fillStyle = origin ? "rgba(255,200,60,0.95)" : "rgba(32,255,64,0.65)";
   ctx.font = "10px 'Courier New', monospace";
   ctx.fillText(origin ? "FROZEN (Z)" : "TOP VIEW  " + (topZoomLabel(rangeWu)),
-               g.left + 5, g.bottom - 6);
+               g.left + B + 12, g.bottom - 8);
   ctx.restore();
 }
