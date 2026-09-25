@@ -70,6 +70,37 @@ python3 devserver.py 8322
 
 then open `http://localhost:8322`. Free play is set: press **START** (or Enter).
 
+## Offline play and updates
+
+Once the app has been opened **online from its HTTPS address** (the Vercel
+deployment), it keeps working with no connection -- open it from Safari or
+from the Home Screen (Share > Add to Home Screen) and it loads from the
+iPad's own copy. How it works (`sw.js` + `js/pwa.js`, modelled on the video
+poker app):
+
+- **Every file is cached.** The page tells the service worker which files it
+  actually loaded (page, stylesheet, every code module, and the nine ROM images), and checks a few
+  seconds later that all of them are in the cache, re-sending any that are
+  missing -- a single missing file would break the app offline.
+- **Online, files come fresh from the server; offline or slow, from the cache.**
+  Each request waits up to 3.5 s for the server, then falls back to the cached
+  copy (the network answer still refreshes the cache when it arrives). Fresh
+  files are always fetched together, so an old cached module is never mixed
+  with a new one.
+- **Update checks.** Whenever the app comes to the foreground, regains a
+  connection, or every 30 minutes, it compares every file's version tag
+  (ETag / Last-Modified) with the ones it launched with -- a few hundred bytes
+  per file. If any changed, a bar says **New version available -- tap to
+  update**; one tap reloads into the new build (dismiss it with the X).
+- **Deploying:** upload the whole folder as usual, including `sw.js`,
+  `manifest.json`, `icons/`, `js/pwa.js` and `vercel.json` (which keeps the
+  browser from caching `sw.js` itself). Nothing needs bumping for a normal
+  update; change `CACHE_NAME` in `sw.js` only to force old cached files out.
+- **Limits.** Service workers only run on HTTPS (or `localhost`), so the
+  plain `http://<computer-ip>` address from your own computer can't work
+  offline -- use the Vercel address on the iPad. And a device that has never
+  opened the app online has nothing cached yet.
+
 ## Controls
 
 - Arrows/WASD: up/down = both treads forward/back, left/right alone = pivot in
